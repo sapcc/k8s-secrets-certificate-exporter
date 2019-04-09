@@ -10,6 +10,6 @@ MAINTAINER Arno Uhlig <arno.uhlig@@sap.com>
 
 RUN apk add --no-cache curl tini
 RUN tini --version
-COPY --from=builder /go/src/github.com/sapcc/k8s-secrets-certificate-exporter/bin/linux/exporter /usr/local/bin/
+COPY --from=builder /go/src/github.com/sapcc/k8s-secrets-certificate-exporter/bin/linux/certificate-exporter /usr/local/bin/
 ENTRYPOINT ["tini", "--"]
-CMD ["exporter"]
+CMD ["certificate-exporter"]

@@ -11,6 +11,18 @@ Exports expiry metrics for certificates found in kubernetes secrets.
 
   - go 1.11
 
+## Usage
+
+```
+Usage of certificate-exporter:
+      --kubeconfig string           Path to kube config (optional).
+      --metric-port int             Port for Prometheus metrics. (default 9091)
+      --namespace string            Limit exporter to this namespace.
+      --recheck-interval duration   Interval to check secrets. (default 30m0s)
+      --resync-interval duration    Interval to resync secrets. (default 15m0s)
+      --threadiness int             Exporter threadiness. (default 1)
+```
+
 ## Example metrics
 
 ```

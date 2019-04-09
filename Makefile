@@ -2,7 +2,7 @@ DATE    = $(shell date +%Y%m%d%H%M)
 IMAGE   ?= sapcc/k8s-secrets-certificate-exporter
 VERSION = v$(DATE)
 GOOS    ?= $(shell go env | grep GOOS | cut -d'"' -f2)
-BINARY  := exporter
+BINARY  := certificate-exporter
 
 LDFLAGS := -X github.com/sapcc/k8s-secrets-certificate-exporter/pkg/exporter.VERSION=$(VERSION)
 GOFLAGS := -ldflags "$(LDFLAGS)"
