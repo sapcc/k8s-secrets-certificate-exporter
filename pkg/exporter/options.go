@@ -27,6 +27,7 @@ type Options struct {
 
 	Threadiness     int
 	MetricPort      int
+	Host            string
 	ResyncInterval  time.Duration
 	RecheckInterval time.Duration
 }

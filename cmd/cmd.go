@@ -20,15 +20,15 @@
 package main
 
 import (
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sapcc/k8s-secrets-certificate-exporter/pkg/exporter"
+	"github.com/spf13/pflag"
 	"log"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/sapcc/k8s-secrets-certificate-exporter/pkg/exporter"
-	"github.com/spf13/pflag"
 )
 
 var opts exporter.Options
@@ -40,6 +40,7 @@ func init() {
 	pflag.DurationVar(&opts.RecheckInterval, "recheck-interval", 30*time.Minute, "Interval to check secrets.")
 	pflag.StringVar(&opts.Namespace, "namespace", "", "Limit exporter to this namespace.")
 	pflag.StringVar(&opts.KubeConfigPath, "kubeconfig", "", "Path to kube config (optional).")
+	pflag.StringVar(&opts.Host, "host", "0.0.0.0", "Host to bind to.")
 }
 
 func main() {
@@ -51,8 +52,12 @@ func main() {
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM) // Push signals into channel
 	wg := &sync.WaitGroup{}                            // Goroutines can add themselves to this to be waited on
 
-	go exporter.New(opts).Run(opts.Threadiness, stop, wg)
-	go exporter.ExposeMetrics("0.0.0.0", opts.MetricPort, stop, wg)
+	e := exporter.New(opts)
+
+	go e.Run(opts.Threadiness, stop, wg)
+	go e.Serve(opts, stop, wg)
+
+	prometheus.MustRegister(e)
 
 	<-sigs
 	close(stop)

@@ -22,15 +22,18 @@ package exporter
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	v1Informer "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -40,12 +43,28 @@ type exporter struct {
 	opts           Options
 	secretInformer cache.SharedIndexInformer
 	queue          workqueue.RateLimitingInterface
+
+	notBefore,
+	notAfter *prometheus.Desc
 }
 
 func New(opts Options) *exporter {
 	e := &exporter{
 		opts:  opts,
 		queue: workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(30*time.Second, 600*time.Second)),
+
+		notBefore: prometheus.NewDesc(
+			"secrets_exporter_certificate_not_before",
+			"Certificate is not valid before.",
+			[]string{"host", "secret", "name"},
+			prometheus.Labels{},
+		),
+		notAfter: prometheus.NewDesc(
+			"secrets_exporter_certificate_not_after",
+			"Certificate is not valid after.",
+			[]string{"host", "secret", "name"},
+			prometheus.Labels{},
+		),
 	}
 
 	clientset, err := newKubernetesClientSet(opts)
@@ -59,7 +78,44 @@ func New(opts Options) *exporter {
 		UpdateFunc: e.secretUpdate,
 	})
 	e.secretInformer = secretInformer
+
 	return e
+}
+
+// Describe implements the Prometheus Describe interface.
+func (e *exporter) Describe(ch chan<- *prometheus.Desc) {
+	ch <- e.notBefore
+	ch <- e.notAfter
+}
+
+// Collect implements the Prometheus Collect interface.
+func (e *exporter) Collect(ch chan<- prometheus.Metric) {
+	for _, secretKey := range e.secretInformer.GetStore().ListKeys() {
+		o, exists, err := e.secretInformer.GetStore().GetByKey(secretKey)
+		if err != nil {
+			log.Printf("error getting secret %s: %v", secretKey, err)
+			continue
+		}
+		if !exists {
+			log.Printf("secret %s does not exist", secretKey)
+			continue
+		}
+
+		secret := o.(*v1.Secret)
+		for keyData, v := range secret.Data {
+			cert, err := loadCertificate(v)
+			if err != nil {
+				// This might just not be a certificate.
+				// log.Printf("error loading data from secret %s, key %s: %v", key, k, err)
+				continue
+			}
+
+			sans := strings.Join(cert.DNSNames, ",")
+
+			ch <- prometheus.MustNewConstMetric(e.notBefore, prometheus.GaugeValue, float64(cert.NotBefore.UTC().Unix()), sans, secretKey, keyData)
+			ch <- prometheus.MustNewConstMetric(e.notAfter, prometheus.GaugeValue, float64(cert.NotAfter.UTC().Unix()), sans, secretKey, keyData)
+		}
+	}
 }
 
 func (e *exporter) Run(threadiness int, stopCh <-chan struct{}, wg *sync.WaitGroup) {
@@ -68,95 +124,28 @@ func (e *exporter) Run(threadiness int, stopCh <-chan struct{}, wg *sync.WaitGro
 
 	log.Println("starting new secrets exporter")
 
-	log.Println("waiting for cache to sync..")
+	log.Println("waiting for cache to sync secrets")
 	go e.secretInformer.Run(stopCh)
-	cache.WaitForCacheSync(stopCh, e.secretInformer.HasSynced)
-
-	for i := 0; i < threadiness; i++ {
-		go wait.Until(e.runWorker, time.Second, stopCh)
+	if !cache.WaitForCacheSync(stopCh, e.secretInformer.HasSynced) {
+		log.Fatalln("timeout while waiting for cache to sync")
 	}
-
-	ticker := time.NewTicker(e.opts.RecheckInterval)
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				log.Printf("checking every %s", e.opts.RecheckInterval.String())
-				e.requeueAllSecrets()
-			case <-stopCh:
-				ticker.Stop()
-				return
-			}
-		}
-	}()
 
 	<-stopCh
 }
 
-func (e *exporter) runWorker() {
-	for e.processNextWorkItem() {
-	}
-}
+func (e *exporter) Serve(opts Options, stopCh <-chan struct{}, wg *sync.WaitGroup) {
+	wg.Add(1)
+	defer wg.Done()
 
-func (e *exporter) processNextWorkItem() bool {
-	key, quit := e.queue.Get()
-	if quit {
-		return false
-	}
-	defer e.queue.Done(key)
-
-	if err := e.syncHandler(key.(string)); err != nil {
-		e.queue.Forget(key)
-		return true
-	}
-
-	e.queue.Add(key)
-	return true
-}
-
-func (e *exporter) requeueAllSecrets() {
-	log.Printf("found %v secrets",len(e.secretInformer.GetStore().ListKeys()))
-
-	for _, o := range e.secretInformer.GetStore().List() {
-		key, err := cache.MetaNamespaceKeyFunc(o)
-		if err != nil {
-			log.Printf("error adding secret: %v", err)
-			return
-		}
-		e.queue.Add(key)
-	}
-}
-
-func (e *exporter) syncHandler(key string) error {
-	o, exists, err := e.secretInformer.GetStore().GetByKey(key)
+	ln, err := net.Listen("tcp", fmt.Sprintf("%v:%v", opts.Host, opts.MetricPort))
 	if err != nil {
-		return err
+		log.Printf("error exposing metrics: %v", err)
+		return
 	}
 
-	if !exists {
-		return errors.Errorf("secrets does not exist. key=%s", key)
-	}
-
-	secret := o.(*v1.Secret)
-
-	for secretKey, secretData := range secret.Data {
-		cert, err := loadCertificate(secretData)
-		if err != nil {
-			// This might just not be a certificate.
-			// log.Printf("unable to load certificate from secret %s, key %s", key, secretKey)
-			continue
-		}
-
-		labels := prometheus.Labels{
-			"host":   strings.Join(cert.DNSNames, ", "),
-			"secret": key,
-			"name":   secretKey,
-		}
-
-		CertificateNotBefore.With(labels).Set(float64(cert.NotBefore.Unix()))
-		CertificateNotAfter.With(labels).Set(float64(cert.NotAfter.Unix()))
-	}
-	return nil
+	log.Printf("exposing metrics on %s:%v", opts.Host, opts.MetricPort)
+	go http.Serve(ln, promhttp.Handler())
+	<-stopCh
 }
 
 func (e *exporter) secretAdd(obj interface{}) {
