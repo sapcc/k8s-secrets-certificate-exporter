@@ -20,15 +20,16 @@
 package main
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sapcc/k8s-secrets-certificate-exporter/pkg/exporter"
-	"github.com/spf13/pflag"
 	"log"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sapcc/k8s-secrets-certificate-exporter/pkg/exporter"
+	"github.com/spf13/pflag"
 )
 
 var opts exporter.Options
