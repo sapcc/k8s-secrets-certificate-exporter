@@ -1,6 +1,5 @@
-DATE    = $(shell date +%Y%m%d%H%M)
+TAG     = $(shell git rev-parse --short HEAD)
 IMAGE   ?= sapcc/k8s-secrets-certificate-exporter
-VERSION = v$(DATE)
 GOOS    ?= $(shell go env | grep GOOS | cut -d'"' -f2)
 BINARY  := certificate-exporter
 
@@ -22,10 +21,10 @@ bin/%/$(BINARY): $(GOFILES) Makefile
 	GOOS=$* GOARCH=amd64 go build $(GOFLAGS) -v -i -o bin/$*/$(BINARY) ./cmd
 
 build: bin/linux/$(BINARY)
-	docker build -t $(IMAGE):$(VERSION) .
+	docker build -t $(IMAGE):$(TAG) .
 
 push: build
-	docker push $(IMAGE):$(VERSION)
+	docker push $(IMAGE):$(TAG)
 
 clean:
 	rm -rf bin/*
