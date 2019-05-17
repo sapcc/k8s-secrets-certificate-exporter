@@ -56,13 +56,13 @@ func New(opts Options) *exporter {
 		notBefore: prometheus.NewDesc(
 			"secrets_exporter_certificate_not_before",
 			"Certificate is not valid before.",
-			[]string{"host", "secret", "name"},
+			[]string{"host", "secret", "key"},
 			prometheus.Labels{},
 		),
 		notAfter: prometheus.NewDesc(
 			"secrets_exporter_certificate_not_after",
 			"Certificate is not valid after.",
-			[]string{"host", "secret", "name"},
+			[]string{"host", "secret", "key"},
 			prometheus.Labels{},
 		),
 	}
