@@ -7,6 +7,7 @@ RUN make all
 
 FROM alpine:3.8
 MAINTAINER Arno Uhlig <arno.uhlig@@sap.com>
+LABEL source_repository="https://github.com/sapcc/k8s-secrets-certificate-exporter"
 
 RUN apk add --no-cache curl tini
 RUN tini --version
